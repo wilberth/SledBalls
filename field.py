@@ -237,7 +237,7 @@ class Field(QGLWidget):
 		self.width = width
 		self.height = height
 		
-	def update(self):
+	def move(self):
 		#acceleration and time
 		dt = 1e-3 * min(100, self.time.elapsed()); # rather violate physics than make a huge timestep
 		
@@ -253,8 +253,6 @@ class Field(QGLWidget):
 						self.pBalls[i][dim] =  2*self.wall[dim][1] - self.pBalls[i][dim]
 						self.vBalls[i][dim] =  -self.vBalls[i][dim]
 				
-
-		super(Field, self).update()
 		
 	nFramePerSecond = 0 # number of frame in this Gregorian second
 	nFrame = 0 # total number of frames
@@ -346,5 +344,6 @@ class Field(QGLWidget):
 		## schedule next redraw
 		if self.running:
 			self.nFrame += 1
+			self.move()
 			self.update()
 
