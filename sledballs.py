@@ -109,14 +109,14 @@ class Main(QMainWindow):
 
 	def startStop(self, event=None):
 		if self.field.running == True:
-			logging.info("request state: end sleep")
+			logging.info("sleep")
 			self.field.running = False
 			self.startAction.setIcon(self.startIcon)
 			self.statusBar().showMessage('Not Running')
-
 		else:
-			logging.info("request state: sleep")
+			logging.info("end sleep")
 			self.field.running = True
+			self.field.tOld = time.time()
 			self.startAction.setIcon(self.stopIcon)
 			self.statusBar().showMessage('Running')
 
@@ -132,14 +132,6 @@ class Main(QMainWindow):
 			self.statusBar().setVisible(False)
 			self.setCursor(QCursor(Qt.BlankCursor))
 				
-	def toggleText(self, text=True):
-		if text:
-			self.centralWidget().setParent(None) # if you do not do this the field widget will be deleted in the next line
-			self.setCentralWidget(self.text)
-		else:
-			self.centralWidget().setParent(None)
-			self.setCentralWidget(self.field)
-			
 
 	def processCommandLine(self):
 		# process command line arguments (to be called with running event loop)

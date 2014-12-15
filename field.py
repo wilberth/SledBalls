@@ -73,7 +73,6 @@ class Field(QGLWidget):
 	wallCollide = True
 	
 	def __init__(self, parent):
-		#QGLWidget.__init__(self, parent)
 		super(Field, self).__init__(parent)
 		self.setMinimumSize(1400, 525)
 		
@@ -88,10 +87,9 @@ class Field(QGLWidget):
 		if not self.format().doubleBuffer():
 			logging.warning("Could not get double buffer; results will be suboptimal")
 			
-		self.time = QTime()
+		self.tOld         = -1
 		self.vBalls       = np.zeros((self.nBalls, 3), dtype="float32") # m/s
-		self.vBalls[1]    = [-0.05, -0.01, 0.0]
-		self.vBalls       = np.random.uniform(-.1, .1, (self.nBalls, 3)).astype(np.float32) # m/s
+		self.vBalls       = np.random.uniform(-0.5, 0.5, (self.nBalls, 3)).astype(np.float32) # m/s
 		self.pBalls       = np.zeros((self.nBalls, 3), dtype="float32") # m
 			
 		self.fadeFactor = 1.0         # no fade, fully exposed
@@ -110,20 +108,29 @@ class Field(QGLWidget):
 			
 	
 	views = ('ALL',)
-	def toggleStereo(self, on, sim=False):
+	def toggleStereo(self, on):
 		if on or len(self.views)==1:
-			if sim:
-				self.views = ('LEFTSIM', 'RIGHTSIM')
-			else:
-				self.views = ('LEFT', 'RIGHT')
+			fmt = self.format()
+			fmt.setStereo(True)
+			self.setFormat(fmt)
+			self.views = ('LEFT', 'RIGHT')
 			self.parent().leftAction.setEnabled(True)
 			self.parent().rightAction.setEnabled(True)
+			if self.format().stereo():
+				logging.info("stereo enabled, os type")
+			else:
+				logging.info("stereo enabled, side-by-side")
 		else:
+			fmt = self.format()
+			fmt.setStereo(False) # does not turn off my glasses
+			self.setFormat(fmt)
 			self.views = ('ALL',)
 			self.parent().leftAction.setEnabled(False)
 			self.parent().rightAction.setEnabled(False)
+			logging.info("stereo disabled")
 		self.update()
-		
+
+
 	stereoIntensityLevel = 0 # integer -9 -- 9
 	def stereoIntensity(self, level=None, relative=None):
 		"""change the relative intensity of the left eye and right eye image"""
@@ -187,7 +194,6 @@ class Field(QGLWidget):
 		# reference triangles, do not move in model coordinates
 		# position of the center
 		
-		nPast = 0
 		p, t, n, pTex = objects.sphere(1.0)
 
 		# each vertex has:
@@ -233,13 +239,16 @@ class Field(QGLWidget):
 		self.initializeObjects()
 
 	def resizeGL(self, width, height):
-		logging.info("Resize: {}, {}".format(width, height))
+		logging.info("resize: {}, {}".format(width, height))
 		self.width = width
 		self.height = height
 		
 	def move(self):
 		#acceleration and time
-		dt = 1e-3 * min(100, self.time.elapsed()); # rather violate physics than make a huge timestep
+		t = time.time()
+		dt = t - self.tOld
+		self.tOld = t
+		dt = min(0.100, dt) # rather violate physics than make a huge timestep, needed after pause
 		
 		# ball displacement (semi implicit Euler)
 		self.pBalls = self.pBalls + self.vBalls * dt
@@ -258,14 +267,14 @@ class Field(QGLWidget):
 	nFrame = 0 # total number of frames
 	nSeconds = int(time.time())
 	def paintGL(self):
+		"""
 		if int(time.time()) > self.nSeconds:
 			self.nSeconds = int(time.time())
-			#print("fps: {}, extrapolation time: {:.3f} s".format(self.nFramePerSecond, self.extrapolationTime), end='\r')
-			#print("fps: {}".format(self.nFramePerSecond), end='\r')
+			print("fps: {}".format(self.nFramePerSecond), end='\r')
 			sys.stdout.flush()
 			self.nFramePerSecond = 0
 		self.nFramePerSecond += 1
-		
+		"""
 		
 		if hasattr(self, "positionClient"): # only false if mouse is used
 			mode = "visual"
@@ -283,25 +292,27 @@ class Field(QGLWidget):
 		if self.nFrameLocation != -1:
 			glUniform1i(self.nFrameLocation, self.nFrame)
 
+		glDrawBuffer(GL_BACK_LEFT)
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 		for eye in self.views:
-			## setup view, change the next 5 lines for different type of stereo view
 			if eye == 'LEFT':
-				glViewport(0, 0, self.width/2, self.height)
 				xEye = -self.dEyes/2
-				intensityLevel = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1][self.stereoIntensityLevel-10]
-			elif eye == 'LEFTSIM':
-				glViewport(0, 0, self.width, self.height)
-				xEye =  -self.dEyes/2
-				intensityLevel = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1][self.stereoIntensityLevel-10]
+				intensityLevel = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1)[self.stereoIntensityLevel-10]
+				glUniform3f(self.colorLocation, 0.0, 0.0, 1.0)
+				if not self.format().stereo():
+					# self implemented side-by-side stereo, for instance in sled lab
+					glViewport(0, 0, self.width/2, self.height)
 			elif eye == 'RIGHT':
-				glViewport(self.width/2, 0, self.width/2, self.height)
 				xEye =  self.dEyes/2
-				intensityLevel = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0][self.stereoIntensityLevel-10]
-			elif eye == 'RIGHTSIM':
-				glViewport(0, 0, self.width, self.height)
-				xEye =  self.dEyes/2
-				intensityLevel = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0][self.stereoIntensityLevel-10]
+				intensityLevel = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)[self.stereoIntensityLevel-10]
+				glUniform3f(self.colorLocation, 1.0, 0.0, 0.0)
+				if self.format().stereo():
+					# os supported stereo, for instance nvidia 3d vision
+					glDrawBuffer(GL_BACK_RIGHT)
+					glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+				else:
+					# self implemented side-by-side stereo, for instance in sled lab
+					glViewport(self.width/2, 0, self.width/2, self.height)
 			else:
 				glViewport(0, 0, self.width, self.height)
 				xEye =  0
@@ -323,7 +334,6 @@ class Field(QGLWidget):
 			self.ballIndices.bind()
 			glVertexAttribPointer(self.positionLocation, 3, GL_FLOAT, False, 3*4, self.ballVertices)
 			#glVertexAttribPointer(self.normalLocation, 3, GL_FLOAT, True, 3*4, self.ballVertices)
-			glUniform3f(self.colorLocation, 1.0, 1.0, 0.0)
 			for i in range(self.nBalls):
 				glUniform3fv(self.offsetLocation, 1, self.pBalls[i])
 				glDrawElements(GL_TRIANGLES, self.ballIndices.data.size, GL_UNSIGNED_INT, None)
