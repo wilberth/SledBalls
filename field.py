@@ -66,10 +66,12 @@ class Field(QGLWidget):
 	tMovement = 1.5                         # s, Movement time of sled
 	
 	# balls
-	rBalls      = .1                        # m
-	nBalls      = 4
+	sBalls		= .2                         #m/s
+	rBalls      = .04                        # m
+	nBalls      = 6
 	ballCollide = False
-	wall        = ((-dScreen[0]/2+rBalls, dScreen[0]/2-rBalls), (-dScreen[1]/2+rBalls, dScreen[1]/2-rBalls), (zFar+rBalls, zNear-rBalls))
+	#wall        = ((-dScreen[0]/4+rBalls, dScreen[0]/4-rBalls), (-dScreen[1]/4+rBalls, dScreen[1]/4-rBalls), (zFar/2+rBalls, zNear/2-rBalls))
+	wall= ((-0.32, 0.32), (-0.32, 0.32), (-0.32, 0.32))
 	wallCollide = True
 	
 	def __init__(self, parent):
@@ -88,10 +90,31 @@ class Field(QGLWidget):
 			logging.warning("Could not get double buffer; results will be suboptimal")
 			
 		self.tOld         = -1
-		self.vBalls       = np.zeros((self.nBalls, 3), dtype="float32") # m/s
-		self.vBalls       = np.random.uniform(-0.5, 0.5, (self.nBalls, 3)).astype(np.float32) # m/s
-		self.pBalls       = np.zeros((self.nBalls, 3), dtype="float32") # m
-			
+
+		#velocity is sampled from a norm sphere and multipled to create equal speed for each object
+		# see sampling_test.py for simulation of the sampling.
+		Angles           = np.random.uniform(0, 1, (self.nBalls, 2)).astype(np.float32) 
+		Theta            = 2*math.pi*Angles[:,0]
+		Phi              = np.arccos(2*Angles[:,1]-1)
+		self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
+		self.vBalls[:,0] =(np.cos(Theta)*np.sin(Phi))*self.sBalls  # m/s x
+		self.vBalls[:,1] =(np.sin(Theta)*np.sin(Phi))*self.sBalls # m/s y 
+		self.vBalls[:,2] =(np.cos(Phi)*self.sBalls)               # m/s z
+
+		distance=np.zeros((self.nBalls*self.nBalls))
+		distance[0]=1 
+		while (sum(distance)>0):	# repeat until no balls
+			distance=np.zeros((self.nBalls*self.nBalls))
+			self.pBalls=np.zeros((self.nBalls,3), dtype="float32")# m
+			self.pBalls[:,0] = np.random.uniform(self.wall[0][0],self.wall[0][1], (self.nBalls)).astype(np.float32)
+			self.pBalls[:,1] = np.random.uniform(self.wall[1][0],self.wall[1][1], (self.nBalls)).astype(np.float32)
+			self.pBalls[:,2] = np.random.uniform(self.wall[2][0],self.wall[2][1], (self.nBalls)).astype(np.float32)
+			for i in range(0,self.nBalls-1):
+				for j in range(i+1,self.nBalls):
+					if np.sqrt(sum(np.square(self.pBalls[i,:] -self.pBalls[j,:]))) < self.rBalls*2: #check euclidean distance
+						distance[i]=1
+
+
 		self.fadeFactor = 1.0         # no fade, fully exposed
 		self.running = False
 
