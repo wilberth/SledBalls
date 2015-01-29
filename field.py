@@ -21,7 +21,7 @@ along with Sleelab.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import print_function
 import sys, math, time, numpy as np, random, serial, ctypes, re
 import fpclient, sledclient, sledclientsimulator, transforms, objects, shader
-
+import numpy.matlib
 #PyQt
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
@@ -64,11 +64,13 @@ class Field(QGLWidget):
 	dEyes     = 0.063                       # m, distance between the eyes, now exp. var
 	dScreen   = np.array([2.728, 1.02])     # m, size of the screen
 	tMovement = 1.5                         # s, Movement time of sled
-	
+	Slength   = 3
+	Stime     = time.time()
 	# balls
 	sBalls		= .2                         #m/s
 	rBalls      = .04                        # m
 	nBalls      = 6
+	nTargets    = 3
 	ballCollide = False
 	#wall        = ((-dScreen[0]/4+rBalls, dScreen[0]/4-rBalls), (-dScreen[1]/4+rBalls, dScreen[1]/4-rBalls), (zFar/2+rBalls, zNear/2-rBalls))
 	wall= ((-0.32, 0.32), (-0.32, 0.32), (-0.32, 0.32))
@@ -76,8 +78,10 @@ class Field(QGLWidget):
 	
 	def __init__(self, parent):
 		super(Field, self).__init__(parent)
+
 		self.setMinimumSize(1400, 525)
-		
+		self.state="sleep"
+		self.changeState()
 		# GL settings
 		fmt = self.format()
 		fmt.setDoubleBuffer(True)    # always double buffers anyway (watch nVidia setting, do not do it there also in 120 Hz mode)
@@ -90,30 +94,6 @@ class Field(QGLWidget):
 			logging.warning("Could not get double buffer; results will be suboptimal")
 			
 		self.tOld         = -1
-
-		#velocity is sampled from a norm sphere and multipled to create equal speed for each object
-		# see sampling_test.py for simulation of the sampling.
-		Angles           = np.random.uniform(0, 1, (self.nBalls, 2)).astype(np.float32) 
-		Theta            = 2*math.pi*Angles[:,0]
-		Phi              = np.arccos(2*Angles[:,1]-1)
-		self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
-		self.vBalls[:,0] =(np.cos(Theta)*np.sin(Phi))*self.sBalls  # m/s x
-		self.vBalls[:,1] =(np.sin(Theta)*np.sin(Phi))*self.sBalls # m/s y 
-		self.vBalls[:,2] =(np.cos(Phi)*self.sBalls)               # m/s z
-
-		distance=np.zeros((self.nBalls*self.nBalls))
-		distance[0]=1 
-		while (sum(distance)>0):	# repeat until no balls
-			distance=np.zeros((self.nBalls*self.nBalls))
-			self.pBalls=np.zeros((self.nBalls,3), dtype="float32")# m
-			self.pBalls[:,0] = np.random.uniform(self.wall[0][0],self.wall[0][1], (self.nBalls)).astype(np.float32)
-			self.pBalls[:,1] = np.random.uniform(self.wall[1][0],self.wall[1][1], (self.nBalls)).astype(np.float32)
-			self.pBalls[:,2] = np.random.uniform(self.wall[2][0],self.wall[2][1], (self.nBalls)).astype(np.float32)
-			for i in range(0,self.nBalls-1):
-				for j in range(i+1,self.nBalls):
-					if np.sqrt(sum(np.square(self.pBalls[i,:] -self.pBalls[j,:]))) < self.rBalls*2: #check euclidean distance
-						distance[i]=1
-
 
 		self.fadeFactor = 1.0         # no fade, fully exposed
 		self.running = False
@@ -128,7 +108,43 @@ class Field(QGLWidget):
 		if hasattr(self, "positionClient") and hasattr(self.positionClient, "stopStream"):
 			print("closing FP client") # logger may not exist anymore
 			self.positionClient.stopStream()
+
+	def changeState(self):
+	
+		if self.state=="sleep": # and space bar is not pressed, needs changing
+			self.state = "wait" 
+			# intial sleep state for lights and additional things.
+			#self.sledClient.sendCommand("Lights On")
+			QTimer.singleShot(4000,self.changeState) #length of wait
+		
+		elif self.state == "wait":
+			self.state = "start"
+			self.motionTrigger=0
+			#self.sledClient.sendCommand("Lights off")
+			#psychometrics
+			#load data
+			QTimer.singleShot(7000,self.changeState) #length of start
+		elif self.state == "start":
+			self.state = "running"
+			self.motionTrigger=1 #run in start state
 			
+			#change colours fade in (need to determine targets)
+			#fade in eg display objects
+			QTimer.singleShot(10000,self.changeState) #length of run
+		elif self.state =="running":
+			self.state = "response"
+			self.motionTrigger=0
+			self.parent().downAction.setEnabled(True)
+			self.parent().upAction.setEnabled(True)
+			#move sled 
+		#elif self.state == "response":
+		#	self.motionTrigger = 0
+		#	#keyboard 
+		#	#save data 
+		#	# go to next state after 4 button preses
+
+
+	
 	
 	views = ('ALL',)
 	def toggleStereo(self, on):
@@ -163,7 +179,13 @@ class Field(QGLWidget):
 			self.stereoIntensityLevel += relative
 		self.parent().statusBar().showMessage("Stereo intensity: {}".format(self.stereoIntensityLevel))
 		self.update()
-		
+	
+	def resColor(self, relative=None): #response ball color function
+		self.currentTarget = (self.currentTarget + relative)%self.nBalls
+		self.resBallColor=np.ones((self.nBalls,3), 'f') #needs to be redefined each ball change move it
+		self.resBallColor[self.currentTarget,:]= [1,0,0] #set to red 
+		self.update()
+
 	def viewerMove(self, x, y=None):
 		""" Move the viewer's position """
 		#print("viewermove: ({}, {})".format(x, y))
@@ -213,6 +235,39 @@ class Field(QGLWidget):
 			time.sleep(2)
 
 	def initializeObjects(self):
+
+	#velocity is sampled from a norm sphere and multipled to create equal speed for each object
+		# see sampling_test.py for simulation of the sampling.
+		Angles           = np.random.uniform(0, 1, (self.nBalls, 2)).astype(np.float32) 
+		Theta            = 2*math.pi*Angles[:,0]
+		Phi              = np.arccos(2*Angles[:,1]-1)
+
+		self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
+		self.vBalls[:,0] =(np.cos(Theta)*np.sin(Phi))*self.sBalls  # m/s x
+		self.vBalls[:,1] =(np.sin(Theta)*np.sin(Phi))*self.sBalls # m/s y 
+		self.vBalls[:,2] =(np.cos(Phi)*self.sBalls)               # m/s z
+		self.motionTrigger = 0 #predefined
+
+		distance=np.zeros((self.nBalls*self.nBalls))
+		distance[0]=1 
+		while (sum(distance)>0):	# repeat until no balls overlap
+			distance=np.zeros((self.nBalls*self.nBalls))
+			self.pBalls=np.zeros((self.nBalls,3), dtype="float32")# m
+			self.pBalls[:,0] = np.random.uniform(self.wall[0][0],self.wall[0][1], (self.nBalls)).astype(np.float32) #initialize balls to be between walls
+			self.pBalls[:,1] = np.random.uniform(self.wall[1][0],self.wall[1][1], (self.nBalls)).astype(np.float32)
+			self.pBalls[:,2] = np.random.uniform(self.wall[2][0],self.wall[2][1], (self.nBalls)).astype(np.float32)
+			for i in range(0,self.nBalls-1):
+				for j in range(i+1,self.nBalls):
+					if np.sqrt(sum(np.square(self.pBalls[i,:] -self.pBalls[j,:]))) < self.rBalls*2: #check euclidean distance
+						distance[i]=1
+
+		self.targets=np.random.permutation(self.nTargets) #create randon permutation of balls
+		self.targets=self.targets[0:self.nTargets] #define targets
+		self.pBallStart=self.pBalls[self.targets,:] #randomise and find targets
+		self.currentTarget=0 #start response from first balls
+		self.ballColor=np.ones((self.nBalls,3), 'f') #everything grey
+		self.ballColor[self.targets,:]=numpy.matlib.repmat([1,0,0],self.nTargets,1)
+		self.resBallColor=np.ones((self.nBalls,3), 'f') #initiale response balls color
 		# set uniform variables and set up VBO's for the attribute values
 		# reference triangles, do not move in model coordinates
 		# position of the center
@@ -236,6 +291,7 @@ class Field(QGLWidget):
 
 		# send the whole array to the video card
 		self.fixationVertices = vbo.VBO(p, usage='GL_STATIC_DRAW')
+
 
 	def initializeGL(self):
 		glEnable(GL_DEPTH_TEST)          # painters algorithm without this
@@ -272,18 +328,23 @@ class Field(QGLWidget):
 		dt = t - self.tOld
 		self.tOld = t
 		dt = min(0.100, dt) # rather violate physics than make a huge timestep, needed after pause
-		
-		# ball displacement (semi implicit Euler)
-		self.pBalls = self.pBalls + self.vBalls * dt
-		if self.wallCollide:
-			for i in range(self.nBalls):
-				for dim in range(3): # todo: vectorize
-					if self.pBalls[i][dim] < self.wall[dim][0]:
-						self.pBalls[i][dim] =  2*self.wall[dim][0] - self.pBalls[i][dim]
-						self.vBalls[i][dim] =  -self.vBalls[i][dim]
-					elif self.pBalls[i][dim] > self.wall[dim][1]:
-						self.pBalls[i][dim] =  2*self.wall[dim][1] - self.pBalls[i][dim]
-						self.vBalls[i][dim] =  -self.vBalls[i][dim]
+		if self.motionTrigger==0: #don't move balls
+			self.pBalls = self.pBalls
+
+
+		elif self.motionTrigger==1: #move balls
+
+			# ball displacement (semi implicit Euler)
+			self.pBalls = self.pBalls + self.vBalls * dt
+			if self.wallCollide:
+				for i in range(self.nBalls):
+					for dim in range(3): # todo: vectorize
+						if self.pBalls[i][dim] < self.wall[dim][0]:
+							self.pBalls[i][dim] =  2*self.wall[dim][0] - self.pBalls[i][dim]
+							self.vBalls[i][dim] =  -self.vBalls[i][dim]
+						elif self.pBalls[i][dim] > self.wall[dim][1]:
+							self.pBalls[i][dim] =  2*self.wall[dim][1] - self.pBalls[i][dim]
+							self.vBalls[i][dim] =  -self.vBalls[i][dim]
 				
 		
 	nFramePerSecond = 0 # number of frame in this Gregorian second
@@ -357,7 +418,16 @@ class Field(QGLWidget):
 			self.ballIndices.bind()
 			glVertexAttribPointer(self.positionLocation, 3, GL_FLOAT, False, 3*4, self.ballVertices)
 			#glVertexAttribPointer(self.normalLocation, 3, GL_FLOAT, True, 3*4, self.ballVertices)
-			for i in range(self.nBalls):
+				
+			for i in range(self.nBalls): #change ball color depending on state, maybe put in function later
+				if self.state == "wait":
+					glUniform3fv(self.colorLocation, 1, intensityLevel*np.array([0,0,0],"f")) #arjan no f at end, np array is colour
+				elif self.state == "start":
+					glUniform3fv(self.colorLocation, 1, self.ballColor[i])
+				elif self.state == "running":
+					glUniform3fv(self.colorLocation, 1, intensityLevel*np.array([1,1,1],"f"))
+				elif self.state == "response":
+					glUniform3fv(self.colorLocation,1, self.resBallColor[i])
 				glUniform3fv(self.offsetLocation, 1, self.pBalls[i])
 				glDrawElements(GL_TRIANGLES, self.ballIndices.data.size, GL_UNSIGNED_INT, None)
 			self.ballVertices.unbind()
@@ -375,6 +445,7 @@ class Field(QGLWidget):
 			
 
 		## schedule next redraw
+
 		if self.running:
 			self.nFrame += 1
 			self.move()

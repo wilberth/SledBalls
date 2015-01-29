@@ -87,6 +87,20 @@ class Main(QMainWindow):
 		self.rightAction.triggered.connect(lambda: self.field.stereoIntensity(relative=1))
 		self.rightAction.setEnabled(False)
 
+
+		#up and down array key to scroll through targets during response phase
+		self.downAction = QAction('Next Ball', self)
+		self.downAction.setShortcut(Qt.Key_Down) 
+		self.downAction.setStatusTip('Move to Next Ball')
+		self.downAction.triggered.connect(lambda: self.field.resColor(relative=-1)) 
+		self.downAction.setEnabled(False)
+
+		self.upAction = QAction('Previous Ball', self)
+		self.upAction.setShortcut(Qt.Key_Up)
+		self.upAction.setStatusTip('Move to Previous Ball')
+		self.upAction.triggered.connect(lambda: self.field.resColor(relative=1))
+		self.upAction.setEnabled(False)
+
 		# populate the menu bar
 		menubar = self.menuBar()
 		fileMenu = menubar.addMenu('&File')
@@ -98,6 +112,13 @@ class Main(QMainWindow):
 		viewMenu.addAction(self.stereoAction)
 		
 		# make it also work when the menubar is hidden
+		experimentMenu = menubar.addMenu('&Experiment')
+		experimentMenu.addAction(self.upAction)
+		experimentMenu.addAction(self.downAction)
+
+
+		self.addAction(self.upAction)
+		self.addAction(self.downAction)
 		self.addAction(self.startAction) 
 		self.addAction(self.fullAction)
 		self.addAction(self.stereoAction)
