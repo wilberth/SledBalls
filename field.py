@@ -20,7 +20,7 @@ along with Sleelab.  If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import print_function
 import sys, math, time, numpy as np, random, serial, ctypes, re
-import fpclient, sledclient, sledclientsimulator, transforms, objects, shader
+import fpclient, sledclient, sledclientsimulator, transforms, objects, shader,conditions
 import numpy.matlib
 #PyQt
 from PyQt4.QtCore import *
@@ -64,13 +64,8 @@ class Field(QGLWidget):
 	dEyes     = 0.063                       # m, distance between the eyes, now exp. var
 	dScreen   = np.array([2.728, 1.02])     # m, size of the screen
 	tMovement = 1.5                         # s, Movement time of sled
-	Slength   = 3
-	Stime     = time.time()
-	# balls
-	sBalls		= .2                         #m/s
+	#balls
 	rBalls      = .04                        # m
-	nBalls      = 6
-	nTargets    = 3
 	ballCollide = False
 	#wall        = ((-dScreen[0]/4+rBalls, dScreen[0]/4-rBalls), (-dScreen[1]/4+rBalls, dScreen[1]/4-rBalls), (zFar/2+rBalls, zNear/2-rBalls))
 	wall= ((-0.32, 0.32), (-0.32, 0.32), (-0.32, 0.32))
@@ -78,10 +73,12 @@ class Field(QGLWidget):
 	
 	def __init__(self, parent):
 		super(Field, self).__init__(parent)
+		
 
 		self.setMinimumSize(1400, 525)
 		self.state="sleep"
-		self.changeState()
+		
+
 		# GL settings
 		fmt = self.format()
 		fmt.setDoubleBuffer(True)    # always double buffers anyway (watch nVidia setting, do not do it there also in 120 Hz mode)
@@ -97,7 +94,8 @@ class Field(QGLWidget):
 
 		self.fadeFactor = 1.0         # no fade, fully exposed
 		self.running = False
-
+		self.conditions = conditions.Conditions(dataKeys=['subject','pCorrect','response','trajectFile'])
+		self.changeState()
 	def __del__(self):
 		self.quit()
 
@@ -110,41 +108,71 @@ class Field(QGLWidget):
 			self.positionClient.stopStream()
 
 	def changeState(self):
-	
-		if self.state=="sleep": # and space bar is not pressed, needs changing
-			self.state = "wait" 
+		if self.state=="home" and self.requestSleep==True:
+			self.state = "sleep"
+			self.requestSleep = False
+			self.parent().toggleText(True)
+			self.sledClient.sendCommand("Lights On")
+		elif self.state=="sleep": # and space bar is not pressed, needs changing
+			self.state = "wait"
 			# intial sleep state for lights and additional things.
 			#self.sledClient.sendCommand("Lights On")
 			QTimer.singleShot(4000,self.changeState) #length of wait
-		
 		elif self.state == "wait":
 			self.state = "start"
 			self.motionTrigger=0
 			#self.sledClient.sendCommand("Lights off")
 			#psychometrics
 			#load data
-			QTimer.singleShot(7000,self.changeState) #length of start
+			QTimer.singleShot(4000,self.changeState) #length of start
 		elif self.state == "start":
 			self.state = "running"
+			self.startime=time.time()
+			#self.client.sendCommand("Sinusoid Start 0.04 2.0")
+ 			
+			print('{"TrialData'+'": [ ',file=self.savefile)
+			print("[{:.6f},{:s}],".format(time.time()-self.startime, ",".join(map(str,self.pBalls.ravel().tolist()))),file=self.savefile)
 			self.motionTrigger=1 #run in start state
-			
 			#change colours fade in (need to determine targets)
 			#fade in eg display objects
-			QTimer.singleShot(10000,self.changeState) #length of run
+			QTimer.singleShot(self.lTrial*1000,self.changeState) #length of run
 		elif self.state =="running":
 			self.state = "response"
+			print("]}",file=self.savefile)
 			self.motionTrigger=0
+			self.resColor(relative=0)
 			self.parent().downAction.setEnabled(True)
 			self.parent().upAction.setEnabled(True)
+			self.parent().confirmAction.setEnabled(True)
+			self.parent().newAction.setEnabled(True)
 			#move sled 
-		#elif self.state == "response":
-		#	self.motionTrigger = 0
+		elif self.state == "response":
+			self.state='sleep'
 		#	#keyboard 
 		#	#save data 
 		#	# go to next state after 4 button preses
-
-
 	
+	def addData(self, data):
+		self.conditions.trial['pCorrect']= data  #str(self.pCorrect) try getting rid of data key
+		self.conditions.trial['subject'] = self.subject # not very useful to store for each trial, but it has to go somewere
+		self.responses[self.selected.astype(int)]=1
+		self.responses=self.responses.astype(int).tolist()
+		self.conditions.trial['response']=self.responses
+		self.conditions.trial['trajectFile']=self.filename
+		logging.info("received while waiting: {}".format(data))
+		
+		if self.conditions.iTrial < self.conditions.nTrial-1:
+			if self.conditions.nextTrial(data = data):
+				self.parent().startStop()
+		else:
+			# last data
+			self.conditions.addData(data)
+			self.requestSleep = True
+		self.state="sleep"
+		self.initializeObjects()
+		self.changeState()
+		#else:
+			#	logging.info("ignoring input: {}".format(data))
 	
 	views = ('ALL',)
 	def toggleStereo(self, on):
@@ -185,6 +213,26 @@ class Field(QGLWidget):
 		self.resBallColor=np.ones((self.nBalls,3), 'f') #needs to be redefined each ball change move it
 		self.resBallColor[self.currentTarget,:]= [1,0,0] #set to red 
 		self.update()
+
+	def resBall(self):
+		#if 
+		#self.ballSelected < self.nTargets
+		self.nCorrect=0
+		self.selected[self.ballSelected]= self.currentTarget #need to store required number of responses
+		self.ballSelected=(self.ballSelected+1)%self.nTargets
+		self.pCorrect = np.mean(np.sort(self.selected) == np.sort(self.targets)).astype(np.float16)
+		
+
+		self.update
+		#else :
+			#self.state='sleep'
+			#self.changeState()
+			#self.initializeObjects()
+			
+			#print(self.ballSelected)
+			#self.addData()
+			#self.conditions.nextTrial()
+			#print(self.conditions.iTrial)
 
 	def viewerMove(self, x, y=None):
 		""" Move the viewer's position """
@@ -238,6 +286,17 @@ class Field(QGLWidget):
 
 	#velocity is sampled from a norm sphere and multipled to create equal speed for each object
 		# see sampling_test.py for simulation of the sampling.
+		# need to make sure we recall this at beginning of new trial
+		self.sBalls=self.conditions.trial['sBalls']
+		self.nBalls=self.conditions.trial['nBalls'] #required parameters go here.
+		self.nTargets=self.conditions.trial['nTargets']
+		self.lTrial=self.conditions.trial['lTrial']
+		self.selected=np.zeros(self.conditions.trial['nTargets']).astype(np.float32)
+		self.ballSelected=0
+		self.nCorrect=0
+		self.pCorrect=float('nan')
+		self.responses=np.zeros(self.conditions.trial['nBalls']).astype(np.float32)
+
 		Angles           = np.random.uniform(0, 1, (self.nBalls, 2)).astype(np.float32) 
 		Theta            = 2*math.pi*Angles[:,0]
 		Phi              = np.arccos(2*Angles[:,1]-1)
@@ -261,12 +320,12 @@ class Field(QGLWidget):
 					if np.sqrt(sum(np.square(self.pBalls[i,:] -self.pBalls[j,:]))) < self.rBalls*2: #check euclidean distance
 						distance[i]=1
 
-		self.targets=np.random.permutation(self.nTargets) #create randon permutation of balls
+		self.targets=np.random.permutation(self.nBalls) #create randon permutation of balls
 		self.targets=self.targets[0:self.nTargets] #define targets
 		self.pBallStart=self.pBalls[self.targets,:] #randomise and find targets
 		self.currentTarget=0 #start response from first balls
 		self.ballColor=np.ones((self.nBalls,3), 'f') #everything grey
-		self.ballColor[self.targets,:]=numpy.matlib.repmat([1,0,0],self.nTargets,1)
+		self.ballColor[self.targets,:]=numpy.matlib.repmat([1,0,0],self.nTargets,1) #num targets cannot be less than num of balls
 		self.resBallColor=np.ones((self.nBalls,3), 'f') #initiale response balls color
 		# set uniform variables and set up VBO's for the attribute values
 		# reference triangles, do not move in model coordinates
@@ -333,7 +392,7 @@ class Field(QGLWidget):
 
 
 		elif self.motionTrigger==1: #move balls
-
+			print("[{:.6f},{:s}],".format(time.time()-self.startime, ",".join(map(str,self.pBalls.ravel().tolist()))),file=self.savefile)
 			# ball displacement (semi implicit Euler)
 			self.pBalls = self.pBalls + self.vBalls * dt
 			if self.wallCollide:
@@ -365,7 +424,7 @@ class Field(QGLWidget):
 			if mode=='visual':
 				pp = self.sledClientSimulator.getPosition()
 			elif mode=='combined' or mode=='vestibular':
-				pp = self.positionClient.getPosition(self.positionClient.time()+5./60)
+				pp = self.positionClient.getPosition(self.positionClient.time()+5./60) #store this variable, as it is sled position
 			else:
 				logging.error("mode not recognized: "+mode)
 				

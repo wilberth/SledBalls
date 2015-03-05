@@ -1,0 +1,2 @@
+iCondition; nTrial; sBalls; nBalls; nTargets; amplitude;period; lTrial;dEyes
+0; 5; List(x=[0.3, 0.2,0.6,0.5,0.4]); 6; 3; 0.2;5; 5; 0.01

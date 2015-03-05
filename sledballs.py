@@ -50,13 +50,20 @@ class Main(QMainWindow):
 		# dialogs
 		self.errorMessageDialog = QErrorMessage(self)
 		
-		## menubar
-		self.startIcon = QIcon('icon/start.png')
-		self.stopIcon = QIcon('icon/pause.png')
+		## menuBar
+		loadAction = QAction(QIcon('icon/load.png'), '&Load', self)
+		loadAction.setShortcut('Ctrl+L')
+		loadAction.setStatusTip('Load experiment file')
+		loadAction.triggered.connect(self.load)
+
+		self.startIcon = QIcon('icon/start.png') 
+		self.stopIcon = QIcon('icon/pause.png') #replace with next trial 
 		self.startAction = QAction(self.startIcon, '&Start/Stop', self)
-		self.startAction.setShortcut(' ')
+		self.startAction.setShortcut('Ctrl+R')
 		self.startAction.setStatusTip('Start/Stop')
 		self.startAction.triggered.connect(self.startStop)
+
+
 		
 		exitAction = QAction(QIcon('icon/quit.png'), '&Exit', self)
 		exitAction.setShortcut('Ctrl+Q')
@@ -95,34 +102,63 @@ class Main(QMainWindow):
 		self.downAction.triggered.connect(lambda: self.field.resColor(relative=-1)) 
 		self.downAction.setEnabled(False)
 
+		self.newAction = QAction('NextTrial' , self)
+		self.newAction.setShortcut(' ')
+		self.newAction.setStatusTip('Confirm Response')
+		self.newAction.triggered.connect(lambda: self.field.addData(self.field.pCorrect))
+		self.newAction.setEnabled(False)
+
+
 		self.upAction = QAction('Previous Ball', self)
 		self.upAction.setShortcut(Qt.Key_Up)
 		self.upAction.setStatusTip('Move to Previous Ball')
 		self.upAction.triggered.connect(lambda: self.field.resColor(relative=1))
 		self.upAction.setEnabled(False)
 
+		#right key confirms choice of target during response phase
+		self.confirmAction = QAction('Confirm Ball', self)
+		self.confirmAction.setShortcut(Qt.Key_Right) 
+		self.confirmAction.setStatusTip('Confirm Ball Choice')
+		self.confirmAction.triggered.connect(self.field.resBall) 
+		self.confirmAction.setEnabled(False)
+
+		nextIcon = QIcon('icon/next.png')
+		self.nextAction = QAction(nextIcon, 'Next trial', self)
+		self.nextAction.setShortcut(Qt.Key_Left)
+		self.nextAction.setStatusTip('next trial')
+		self.nextAction.triggered.connect(self.field.conditions.next)
+		self.nextAction.setEnabled(False)
+
 		# populate the menu bar
 		menubar = self.menuBar()
 		fileMenu = menubar.addMenu('&File')
 		fileMenu.addAction(self.startAction)
 		fileMenu.addAction(exitAction)
+		fileMenu.addAction(loadAction)
 
 		viewMenu = menubar.addMenu('&View')
 		viewMenu.addAction(self.fullAction)
 		viewMenu.addAction(self.stereoAction)
+
 		
 		# make it also work when the menubar is hidden
 		experimentMenu = menubar.addMenu('&Experiment')
 		experimentMenu.addAction(self.upAction)
 		experimentMenu.addAction(self.downAction)
+		experimentMenu.addAction(self.confirmAction)
+		experimentMenu.addAction(self.nextAction)
+		experimentMenu.addAction(self.newAction)
 
-
-		self.addAction(self.upAction)
+		self.addAction(self.nextAction)
+		self.addAction(self.upAction) #add space action for next
+		self.addAction(self.confirmAction)
 		self.addAction(self.downAction)
+		self.addAction(self.newAction)
 		self.addAction(self.startAction) 
 		self.addAction(self.fullAction)
 		self.addAction(self.stereoAction)
 		self.addAction(exitAction)
+		self.addAction(loadAction)
 
 		self.statusBar().showMessage('Ready')
 		self.setWindowTitle('SledBalls')
@@ -133,6 +169,7 @@ class Main(QMainWindow):
 			logging.info("sleep")
 			self.field.running = False
 			self.startAction.setIcon(self.startIcon)
+			self.field.changeState()
 			self.statusBar().showMessage('Not Running')
 		else:
 			logging.info("end sleep")
@@ -140,6 +177,29 @@ class Main(QMainWindow):
 			self.field.tOld = time.time()
 			self.startAction.setIcon(self.stopIcon)
 			self.statusBar().showMessage('Running')
+
+
+	def load(self, event=None, fileName=None):
+		"""Load new list of trials."""
+		if os.path.isdir('data'):
+				directory = 'data/'
+		self.field.filename= os.path.join(directory,"motSub"+str(self.field.subject)+'.txt ') #probably move this when condityion is added
+		self.field.savefile= open(self.field.filename,'w')
+		self.nextAction.setEnabled(False)
+		if fileName==None:
+			fileName = QFileDialog.getOpenFileName(self, "Open file", filter="Experiment file (.csv)(*.csv)")
+		if fileName==None:
+			QMessageBox.question(self, 'Error', "No filename given?", QtGui.QMessageBox.Ok)
+			return
+		#try:
+		self.field.conditions.load(fileName)
+		self.field.initializeObjects()
+		#except Exception as e:
+		#	self.errorMessageDialog.showMessage("Could not read file: {}\n{}".format(fileName, e))
+		#	raise e
+			
+		logging.info("load file {} with {} conditions".format(fileName, len(self.field.conditions.conditions)))		
+
 
 	def toggleFullScreen(self, event=None):
 		if(self.isFullScreen()):
@@ -152,15 +212,18 @@ class Main(QMainWindow):
 			self.menuBar().setVisible(False)
 			self.statusBar().setVisible(False)
 			self.setCursor(QCursor(Qt.BlankCursor))
-				
 
 	def processCommandLine(self):
 		# process command line arguments (to be called with running event loop)
 		args = self.args
+		if args.subject:
+			self.field.subject = args.subject
 		if args.fullscreen:
 			self.toggleFullScreen()
 		if args.running:
 			self.startStop()
+		if args.experiment:
+			self.load(fileName=args.experiment)
 		self.field.connectSledServer(args.sledServer)     # defaults to simulator
 		self.field.connectPositionServer(args.positionServer) # defaults to sledserver
 		if args.stereo:
@@ -169,6 +232,7 @@ class Main(QMainWindow):
 			self.field.toggleStereo(True, sim=True)
 		if args.stereoIntensity:
 			self.field.stereoIntensity(int(args.stereoIntensity))
+
 		
 
 def main(): 
@@ -179,19 +243,16 @@ def main():
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-geometry", help="X11 option")
 	parser.add_argument("-display", help="X11 option")
-	parser.add_argument("-f", "--fullscreen", 
-		help="start in full screen mode", action="store_true")
-	parser.add_argument("-s", "--sledServer", 
-		help="sled server, default to sled server simulator")
-	parser.add_argument("-p", "--positionServer", 
-		help="position server, defaults to the sled server, but must be a first principles server when explicitly given, use 'mouse' for mouse")
+	parser.add_argument("-e", "--experiment", help="experiment input file (.csv)")
+	parser.add_argument("-f", "--fullscreen", help="start in full screen mode", action="store_true")
+	parser.add_argument("-s", "--sledServer", help="sled server, default to sled server simulator")
+	parser.add_argument("-p", "--positionServer", help="position server, defaults to the sled server, but must be a first principles server when explicitly given, use 'mouse' for mouse")
 	parser.add_argument("--stereo", help="Side by side stereoscopic view", action="store_true")
-	parser.add_argument("--stereoSim", 
-		help="Simulating stereoscopic view", action="store_true")
+	parser.add_argument("--stereoSim", help="Simulating stereoscopic view", action="store_true")
 	parser.add_argument("--stereoIntensity", help="Stereoscopic intensity balance -9 — 9")
 	parser.add_argument("-r", "--running", help="start in running mode", action="store_true")
-	args = parser.parse_args()
-	
+	parser.add_argument("--subject", help="Subject ID")
+	args = parser.parse_args()	
 	
 	# make application and main window
 	a = QApplication(sys.argv)
