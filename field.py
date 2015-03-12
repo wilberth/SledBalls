@@ -22,6 +22,9 @@ from __future__ import print_function
 import sys, math, time, numpy as np, random, serial, ctypes, re
 import fpclient, sledclient, sledclientsimulator, transforms, objects, shader,conditions
 import numpy.matlib
+
+from rusocsci import buttonbox
+
 #PyQt
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
@@ -70,6 +73,7 @@ class Field(QGLWidget):
 	#wall        = ((-dScreen[0]/4+rBalls, dScreen[0]/4-rBalls), (-dScreen[1]/4+rBalls, dScreen[1]/4-rBalls), (zFar/2+rBalls, zNear/2-rBalls))
 	wall= ((-0.32, 0.32), (-0.32, 0.32), (-0.32, 0.32))
 	wallCollide = True
+	moveType="ConstantVelocity"
 	
 	def __init__(self, parent):
 		super(Field, self).__init__(parent)
@@ -95,7 +99,13 @@ class Field(QGLWidget):
 		self.fadeFactor = 1.0         # no fade, fully exposed
 		self.running = False
 		self.conditions = conditions.Conditions(dataKeys=['subject','pCorrect','response','trajectFile'])
-		self.changeState()
+		
+		try:
+			self.shutter = buttonbox.Buttonbox() # optionally add port="COM17"
+			self.openShutter(False, False)
+		except Exception as e:
+			print(e)
+
 	def __del__(self):
 		self.quit()
 
@@ -113,23 +123,20 @@ class Field(QGLWidget):
 			self.requestSleep = False
 			self.parent().toggleText(True)
 			self.sledClient.sendCommand("Lights On")
-		elif self.state=="sleep": # and space bar is not pressed, needs changing
+		elif self.state=="sleep" or self.state=="home": # and space bar is not pressed, needs changing
+			self.sledClient.sendCommand("Lights Off")
 			self.state = "wait"
 			# intial sleep state for lights and additional things.
-			#self.sledClient.sendCommand("Lights On")
-			QTimer.singleShot(4000,self.changeState) #length of wait
+			QTimer.singleShot(3000,self.changeState) #length of wait
 		elif self.state == "wait":
 			self.state = "start"
 			self.motionTrigger=0
-			#self.sledClient.sendCommand("Lights off")
-			#psychometrics
-			#load data
-			QTimer.singleShot(4000,self.changeState) #length of start
+	
+			QTimer.singleShot(4000,self.changeState) #length of viewing targets
 		elif self.state == "start":
 			self.state = "running"
 			self.startime=time.time()
-			#self.client.sendCommand("Sinusoid Start 0.04 2.0")
- 			
+			self.sledClient.sendCommand("Sinusoid Start" +str(self.conditions.trial['amplitude']) +str(self.conditions.trial['period']))
 			print('{"TrialData'+'": [ ',file=self.savefile)
 			print("[{:.6f},{:s}],".format(time.time()-self.startime, ",".join(map(str,self.pBalls.ravel().tolist()))),file=self.savefile)
 			self.motionTrigger=1 #run in start state
@@ -138,6 +145,7 @@ class Field(QGLWidget):
 			QTimer.singleShot(self.lTrial*1000,self.changeState) #length of run
 		elif self.state =="running":
 			self.state = "response"
+			self.sledClient.sendCommand("Sinusoid Stop") 
 			print("]}",file=self.savefile)
 			self.motionTrigger=0
 			self.resColor(relative=0)
@@ -147,10 +155,15 @@ class Field(QGLWidget):
 			self.parent().newAction.setEnabled(True)
 			#move sled 
 		elif self.state == "response":
-			self.state='sleep'
-		#	#keyboard 
-		#	#save data 
-		#	# go to next state after 4 button preses
+			self.state='home'
+			self.initializeObjects()
+			self.parent().downAction.setEnabled(False)
+			self.parent().upAction.setEnabled(False)
+			self.parent().confirmAction.setEnabled(False)
+			self.parent().newAction.setEnabled(False)
+			self.changeState()
+		else:
+			logging.warning("state unknown: {}".format(self.state))
 	
 	def addData(self, data):
 		self.conditions.trial['pCorrect']= data  #str(self.pCorrect) try getting rid of data key
@@ -168,8 +181,6 @@ class Field(QGLWidget):
 			# last data
 			self.conditions.addData(data)
 			self.requestSleep = True
-		self.state="sleep"
-		self.initializeObjects()
 		self.changeState()
 		#else:
 			#	logging.info("ignoring input: {}".format(data))
@@ -269,6 +280,14 @@ class Field(QGLWidget):
 		self.sledClient.goto(self.h) # homing sled at -reference
 		self.sledClientSimulator.warpto(self.h) # homing sled at -reference
 	
+	def openShutter(self, left=False, right=False):
+		"""open shutter glasses"""
+		try:
+			self.shutter.setLeds([left, right, False, False, False, False, False, False])
+		except:
+			pass
+
+
 	def connectPositionServer(self, server=None):
 		""" Connect to a First Principles server which returns the viewer position in the first marker position.
 		Make sure this function is called after connectSledServer so that the fall back option is present. """
@@ -300,12 +319,18 @@ class Field(QGLWidget):
 		Angles           = np.random.uniform(0, 1, (self.nBalls, 2)).astype(np.float32) 
 		Theta            = 2*math.pi*Angles[:,0]
 		Phi              = np.arccos(2*Angles[:,1]-1)
-
-		self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
-		self.vBalls[:,0] =(np.cos(Theta)*np.sin(Phi))*self.sBalls  # m/s x
-		self.vBalls[:,1] =(np.sin(Theta)*np.sin(Phi))*self.sBalls # m/s y 
-		self.vBalls[:,2] =(np.cos(Phi)*self.sBalls)               # m/s z
 		self.motionTrigger = 0 #predefined
+		if self.moveType == "ConstantVelocity":
+			self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
+			self.vBalls[:,0] =(np.cos(Theta)*np.sin(Phi))*self.sBalls  # m/s x
+			self.vBalls[:,1] =(np.sin(Theta)*np.sin(Phi))*self.sBalls # m/s y 
+			self.vBalls[:,2] =(np.cos(Phi)*self.sBalls)               # m/s z
+
+		elif self.moveType == "virtualSpring":
+			self.pBalls      = np.zeros((self.nBalls,3), dtype="float32")
+			self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
+
+
 
 		distance=np.zeros((self.nBalls*self.nBalls))
 		distance[0]=1 
@@ -319,7 +344,8 @@ class Field(QGLWidget):
 				for j in range(i+1,self.nBalls):
 					if np.sqrt(sum(np.square(self.pBalls[i,:] -self.pBalls[j,:]))) < self.rBalls*2: #check euclidean distance
 						distance[i]=1
-
+		if self.moveType=="virtualSpring":
+			self.pBalls=np.zeros((self.nBalls,3), dtype="float32")
 		self.targets=np.random.permutation(self.nBalls) #create randon permutation of balls
 		self.targets=self.targets[0:self.nTargets] #define targets
 		self.pBallStart=self.pBalls[self.targets,:] #randomise and find targets
@@ -382,30 +408,50 @@ class Field(QGLWidget):
 		self.height = height
 		
 	def move(self):
+		if self.moveType=="ConstantVelocity":
 		#acceleration and time
-		t = time.time()
-		dt = t - self.tOld
-		self.tOld = t
-		dt = min(0.100, dt) # rather violate physics than make a huge timestep, needed after pause
-		if self.motionTrigger==0: #don't move balls
-			self.pBalls = self.pBalls
+			t = time.time()
+			dt = t - self.tOld
+			self.tOld = t
+			dt = min(0.100, dt) # rather violate physics than make a huge timestep, needed after pause
+			if self.motionTrigger==0: #don't move balls
+				self.pBalls = self.pBalls
 
 
-		elif self.motionTrigger==1: #move balls
-			print("[{:.6f},{:s}],".format(time.time()-self.startime, ",".join(map(str,self.pBalls.ravel().tolist()))),file=self.savefile)
-			# ball displacement (semi implicit Euler)
-			self.pBalls = self.pBalls + self.vBalls * dt
-			if self.wallCollide:
-				for i in range(self.nBalls):
-					for dim in range(3): # todo: vectorize
-						if self.pBalls[i][dim] < self.wall[dim][0]:
-							self.pBalls[i][dim] =  2*self.wall[dim][0] - self.pBalls[i][dim]
-							self.vBalls[i][dim] =  -self.vBalls[i][dim]
-						elif self.pBalls[i][dim] > self.wall[dim][1]:
-							self.pBalls[i][dim] =  2*self.wall[dim][1] - self.pBalls[i][dim]
-							self.vBalls[i][dim] =  -self.vBalls[i][dim]
+			elif self.motionTrigger==1: #move balls
+				print("[{:.6f},{:s}],".format(time.time()-self.startime, ",".join(map(str,self.pBalls.ravel().tolist()))),file=self.savefile)
+				# ball displacement (semi implicit Euler)
+				self.pBalls = self.pBalls + self.vBalls * dt
+				if self.wallCollide:
+					for i in range(self.nBalls):
+						for dim in range(3): # todo: vectorize
+							if self.pBalls[i][dim] < self.wall[dim][0]:
+								self.pBalls[i][dim] =  2*self.wall[dim][0] - self.pBalls[i][dim]
+								self.vBalls[i][dim] =  -self.vBalls[i][dim]
+							elif self.pBalls[i][dim] > self.wall[dim][1]:
+								self.pBalls[i][dim] =  2*self.wall[dim][1] - self.pBalls[i][dim]
+								self.vBalls[i][dim] =  -self.vBalls[i][dim]
 				
-		
+		elif self.moveType=="virtualSpring":
+
+			L= 0.99 #dampening/ inertia
+			K= 3.8#spring constant
+			Sig=0.02
+			t = time.time()
+			dt = t - self.tOld
+			self.tOld = t
+			dt = min(0.100, dt) # rather violate physics than make a huge timestep, needed after pause
+			if self.motionTrigger==0: #don't move balls
+				self.pBalls = self.pBalls
+
+
+			elif self.motionTrigger==1: #move balls
+				print("[{:.6f},{:s}],".format(time.time()-self.startime, ",".join(map(str,self.pBalls.ravel().tolist()))),file=self.savefile)
+				# ball displacement (semi implicit Euler)
+				self.vBalls = L*self.vBalls - K*self.pBalls + np.random.normal(0,Sig,(self.nBalls,3)).astype(np.float32)
+				self.pBalls = self.pBalls + self.vBalls
+
+
 	nFramePerSecond = 0 # number of frame in this Gregorian second
 	nFrame = 0 # total number of frames
 	nSeconds = int(time.time())
@@ -479,7 +525,7 @@ class Field(QGLWidget):
 			#glVertexAttribPointer(self.normalLocation, 3, GL_FLOAT, True, 3*4, self.ballVertices)
 				
 			for i in range(self.nBalls): #change ball color depending on state, maybe put in function later
-				if self.state == "wait":
+				if self.state == "wait" or self.state=='home' or self.state=='sleep':
 					glUniform3fv(self.colorLocation, 1, intensityLevel*np.array([0,0,0],"f")) #arjan no f at end, np array is colour
 				elif self.state == "start":
 					glUniform3fv(self.colorLocation, 1, self.ballColor[i])
@@ -505,8 +551,8 @@ class Field(QGLWidget):
 
 		## schedule next redraw
 
-		if self.running:
-			self.nFrame += 1
-			self.move()
-			self.update()
+		#if self.running:
+		self.nFrame += 1
+		self.move()
+		self.update()
 

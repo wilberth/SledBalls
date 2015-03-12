@@ -45,7 +45,14 @@ class Main(QMainWindow):
 	def initUI(self):
 		#contents
 		self.field = Field(self)
-		self.setCentralWidget(self.field)
+
+
+		# alternative content
+		self.text = QLabel("Paused")
+		self.text.setStyleSheet('text-align: right; color:#a00000; background-color:#000000; font-size: 100pt; font-family: Sans-Serif;')
+		self.text.setMinimumSize(1400, 525)
+		self.setCentralWidget(self.text)
+		#self.setCentralWidget(self.field)		
 
 		# dialogs
 		self.errorMessageDialog = QErrorMessage(self)
@@ -164,19 +171,31 @@ class Main(QMainWindow):
 		self.setWindowTitle('SledBalls')
 		self.show()
 
+	#def startStop(self, event=None):
+	#	if self.field.running == True:
+	#		logging.info("sleep")
+	#		self.field.running = False
+	#		self.startAction.setIcon(self.startIcon)
+	#		self.field.changeState()
+	#		self.statusBar().showMessage('Not Running')
+	#	else:
+	#		logging.info("end sleep")
+	#		self.field.running = True
+	#		self.field.tOld = time.time()
+	#		self.startAction.setIcon(self.stopIcon)
+	#		self.statusBar().showMessage('Running')
+			
 	def startStop(self, event=None):
-		if self.field.running == True:
-			logging.info("sleep")
-			self.field.running = False
-			self.startAction.setIcon(self.startIcon)
+		if self.field.state=="sleep":
+			logging.info("request state: end sleep")
+			self.toggleText(False)
+			self.field.requestSleep = False
 			self.field.changeState()
-			self.statusBar().showMessage('Not Running')
-		else:
-			logging.info("end sleep")
-			self.field.running = True
-			self.field.tOld = time.time()
 			self.startAction.setIcon(self.stopIcon)
-			self.statusBar().showMessage('Running')
+		else:
+			logging.info("request state: sleep")
+			self.field.requestSleep = True
+			self.startAction.setIcon(self.startIcon)
 
 
 	def load(self, event=None, fileName=None):
@@ -213,6 +232,13 @@ class Main(QMainWindow):
 			self.statusBar().setVisible(False)
 			self.setCursor(QCursor(Qt.BlankCursor))
 
+	def toggleText(self, text=True):
+		if text:
+			self.centralWidget().setParent(None) # if you do not do this the field widget will be deleted in the next line
+			self.setCentralWidget(self.text)
+		else:
+			self.centralWidget().setParent(None)
+			self.setCentralWidget(self.field)
 	def processCommandLine(self):
 		# process command line arguments (to be called with running event loop)
 		args = self.args
