@@ -73,7 +73,7 @@ class Field(QGLWidget):
 	#wall        = ((-dScreen[0]/4+rBalls, dScreen[0]/4-rBalls), (-dScreen[1]/4+rBalls, dScreen[1]/4-rBalls), (zFar/2+rBalls, zNear/2-rBalls))
 	wall= ((-0.32, 0.32), (-0.32, 0.32), (-0.32, 0.32))
 	wallCollide = True
-	moveType="ConstantVelocity"
+	moveType="virtualSpring"
 	
 	def __init__(self, parent):
 		super(Field, self).__init__(parent)
@@ -344,8 +344,7 @@ class Field(QGLWidget):
 				for j in range(i+1,self.nBalls):
 					if np.sqrt(sum(np.square(self.pBalls[i,:] -self.pBalls[j,:]))) < self.rBalls*2: #check euclidean distance
 						distance[i]=1
-		if self.moveType=="virtualSpring":
-			self.pBalls=np.zeros((self.nBalls,3), dtype="float32")
+		#if self.moveType=="virtualSpring":
 		self.targets=np.random.permutation(self.nBalls) #create randon permutation of balls
 		self.targets=self.targets[0:self.nTargets] #define targets
 		self.pBallStart=self.pBalls[self.targets,:] #randomise and find targets
@@ -434,11 +433,12 @@ class Field(QGLWidget):
 				
 		elif self.moveType=="virtualSpring":
 
-			L= 0.99 #dampening/ inertia
-			K= 3.8#spring constant
-			Sig=0.02
+			L= 0#dampening/ inertia
+			K= 0.05#spring constant
+			Sig=0.03
 			t = time.time()
-			dt = t - self.tOld
+			#dt = t - self.tOld
+			dt=0.1
 			self.tOld = t
 			dt = min(0.100, dt) # rather violate physics than make a huge timestep, needed after pause
 			if self.motionTrigger==0: #don't move balls
@@ -448,7 +448,7 @@ class Field(QGLWidget):
 			elif self.motionTrigger==1: #move balls
 				print("[{:.6f},{:s}],".format(time.time()-self.startime, ",".join(map(str,self.pBalls.ravel().tolist()))),file=self.savefile)
 				# ball displacement (semi implicit Euler)
-				self.vBalls = L*self.vBalls - K*self.pBalls + np.random.normal(0,Sig,(self.nBalls,3)).astype(np.float32)
+				self.vBalls = L*self.vBalls + K*(0-self.pBalls)*dt + np.sqrt(dt)*np.random.normal(0,Sig,(self.nBalls,3)).astype(np.float32)
 				self.pBalls = self.pBalls + self.vBalls
 
 
