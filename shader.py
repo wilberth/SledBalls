@@ -75,13 +75,13 @@ void main() {
 fs = \
 """#version 330
 uniform vec3 color;
+uniform float diffuse;
+uniform float ambient;
 uniform float fadeFactor;   // multiplyer for color (1.0 for faded in, 0.0 for faded out)
 
 in float normal;
 out vec4 gl_FragColor;
 void main() {
-	float ambient = 0.3;
-	float diffuse = 1.0;
 	if (gl_FrontFacing)
 		gl_FragColor = vec4(max(ambient,diffuse*normal)*color, 1.0);
 		//gl_FragColor = vec4(max(dot(normal, lightDirection)*diffuse, ambient)*color, 1.0);

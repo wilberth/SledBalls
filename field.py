@@ -72,8 +72,11 @@ class Field(QGLWidget):
 	ballCollide = False
 	#wall        = ((-dScreen[0]/4+rBalls, dScreen[0]/4-rBalls), (-dScreen[1]/4+rBalls, dScreen[1]/4-rBalls), (zFar/2+rBalls, zNear/2-rBalls))
 	wall= ((-0.32, 0.32), (-0.32, 0.32), (-0.32, 0.32))
+	#wall= ((-0.20, 0.20), (-0.20, 0.20), (-0.20, 0.20))
 	wallCollide = True
 	moveType="virtualSpring"
+	dimType="2D"
+	expType="Vul"
 	
 	def __init__(self, parent):
 		super(Field, self).__init__(parent)
@@ -306,52 +309,109 @@ class Field(QGLWidget):
 	#velocity is sampled from a norm sphere and multipled to create equal speed for each object
 		# see sampling_test.py for simulation of the sampling.
 		# need to make sure we recall this at beginning of new trial
-		self.sBalls=self.conditions.trial['sBalls']
-		self.nBalls=self.conditions.trial['nBalls'] #required parameters go here.
-		self.nTargets=self.conditions.trial['nTargets']
-		self.lTrial=self.conditions.trial['lTrial']
-		self.selected=np.zeros(self.conditions.trial['nTargets']).astype(np.float32)
-		self.ballSelected=0
-		self.nCorrect=0
-		self.pCorrect=float('nan')
-		self.responses=np.zeros(self.conditions.trial['nBalls']).astype(np.float32)
+		#adding 2-d change
+		if self.dimType=="3D":
+			self.sBalls=self.conditions.trial['sBalls']
+			self.nBalls=self.conditions.trial['nBalls'] #required parameters go here.
+			self.nTargets=self.conditions.trial['nTargets']
+			self.lTrial=self.conditions.trial['lTrial']
+			self.selected=np.zeros(self.conditions.trial['nTargets']).astype(np.float32)
+			self.ballSelected=0
+			self.nCorrect=0
+			self.pCorrect=float('nan')
+			self.responses=np.zeros(self.conditions.trial['nBalls']).astype(np.float32)
 
-		Angles           = np.random.uniform(0, 1, (self.nBalls, 2)).astype(np.float32) 
-		Theta            = 2*math.pi*Angles[:,0]
-		Phi              = np.arccos(2*Angles[:,1]-1)
-		self.motionTrigger = 0 #predefined
-		if self.moveType == "ConstantVelocity":
-			self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
-			self.vBalls[:,0] =(np.cos(Theta)*np.sin(Phi))*self.sBalls  # m/s x
-			self.vBalls[:,1] =(np.sin(Theta)*np.sin(Phi))*self.sBalls # m/s y 
-			self.vBalls[:,2] =(np.cos(Phi)*self.sBalls)               # m/s z
+			Angles           = np.random.uniform(0, 1, (self.nBalls, 2)).astype(np.float32) 
+			Theta            = 2*math.pi*Angles[:,0]
+			Phi              = np.arccos(2*Angles[:,1]-1)
+			self.motionTrigger = 0 #predefined
+			if self.moveType == "ConstantVelocity":
+				self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
+				self.vBalls[:,0] =(np.cos(Theta)*np.sin(Phi))*self.sBalls  # m/s x
+				self.vBalls[:,1] =(np.sin(Theta)*np.sin(Phi))*self.sBalls # m/s y 
+				self.vBalls[:,2] =(np.cos(Phi)*self.sBalls)               # m/s z
 
-		elif self.moveType == "virtualSpring":
-			self.pBalls      = np.zeros((self.nBalls,3), dtype="float32")
-			self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
+			elif self.moveType == "virtualSpring":
+				self.pBalls      = np.zeros((self.nBalls,3), dtype="float32")
+				self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
 
-
-
-		distance=np.zeros((self.nBalls*self.nBalls))
-		distance[0]=1 
-		while (sum(distance)>0):	# repeat until no balls overlap
 			distance=np.zeros((self.nBalls*self.nBalls))
-			self.pBalls=np.zeros((self.nBalls,3), dtype="float32")# m
-			self.pBalls[:,0] = np.random.uniform(self.wall[0][0],self.wall[0][1], (self.nBalls)).astype(np.float32) #initialize balls to be between walls
-			self.pBalls[:,1] = np.random.uniform(self.wall[1][0],self.wall[1][1], (self.nBalls)).astype(np.float32)
-			self.pBalls[:,2] = np.random.uniform(self.wall[2][0],self.wall[2][1], (self.nBalls)).astype(np.float32)
-			for i in range(0,self.nBalls-1):
-				for j in range(i+1,self.nBalls):
-					if np.sqrt(sum(np.square(self.pBalls[i,:] -self.pBalls[j,:]))) < self.rBalls*2: #check euclidean distance
-						distance[i]=1
+			distance[0]=1 
+			while (sum(distance)>0):	# repeat until no balls overlap
+				distance=np.zeros((self.nBalls*self.nBalls))
+				self.pBalls=np.zeros((self.nBalls,3), dtype="float32")# m
+				self.pBalls[:,0] = np.random.uniform(self.wall[0][0],self.wall[0][1], (self.nBalls)).astype(np.float32) #initialize balls to be between walls
+				self.pBalls[:,1] = np.random.uniform(self.wall[1][0],self.wall[1][1], (self.nBalls)).astype(np.float32)
+				self.pBalls[:,2] = np.random.uniform(self.wall[2][0],self.wall[2][1], (self.nBalls)).astype(np.float32)
+				for i in range(0,self.nBalls-1):
+					for j in range(i+1,self.nBalls):
+						if np.sqrt(sum(np.square(self.pBalls[i,:] -self.pBalls[j,:]))) < self.rBalls*2: #check euclidean distance
+							distance[i]=1
 		#if self.moveType=="virtualSpring":
-		self.targets=np.random.permutation(self.nBalls) #create randon permutation of balls
-		self.targets=self.targets[0:self.nTargets] #define targets
-		self.pBallStart=self.pBalls[self.targets,:] #randomise and find targets
-		self.currentTarget=0 #start response from first balls
-		self.ballColor=np.ones((self.nBalls,3), 'f') #everything grey
-		self.ballColor[self.targets,:]=numpy.matlib.repmat([1,0,0],self.nTargets,1) #num targets cannot be less than num of balls
-		self.resBallColor=np.ones((self.nBalls,3), 'f') #initiale response balls color
+			self.targets=np.random.permutation(self.nBalls) #create randon permutation of balls
+			self.targets=self.targets[0:self.nTargets] #define targets
+			self.pBallStart=self.pBalls[self.targets,:] #randomise and find targets
+			self.currentTarget=0 #start response from first balls
+			self.ballColor=np.ones((self.nBalls,3), 'f') #everything grey
+			self.ballColor[self.targets,:]=numpy.matlib.repmat([1,0,0],self.nTargets,1) #num targets cannot be less than num of balls
+			self.resBallColor=np.ones((self.nBalls,3), 'f') #initiale response balls color
+
+
+		else:
+			self.sBalls=self.conditions.trial['sBalls']
+			self.nBalls=self.conditions.trial['nBalls'] #required parameters go here.
+			self.nTargets=self.conditions.trial['nTargets']
+			self.lTrial=self.conditions.trial['lTrial']
+			self.selected=np.zeros(self.conditions.trial['nTargets']).astype(np.float32)
+			self.ballSelected=0
+			self.nCorrect=0
+			self.pCorrect=float('nan')
+			self.responses=np.zeros(self.conditions.trial['nBalls']).astype(np.float32)
+
+			Angles           = np.random.uniform(0, 1, (self.nBalls, 2)).astype(np.float32) 
+			Theta            = 2*math.pi*Angles[:,0]
+			Phi              = np.arccos(2*Angles[:,1]-1)
+			self.motionTrigger = 0 #predefined
+			if self.moveType == "ConstantVelocity":
+				self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
+				self.vBalls[:,0] =(np.cos(Theta)*np.sin(Phi))*self.sBalls  # m/s x
+				self.vBalls[:,1] =(np.sin(Theta)*np.sin(Phi))*self.sBalls # m/s y 
+				#self.vBalls[:,2] =(np.cos(Phi)*self.sBalls)               # m/s z
+
+			elif self.moveType == "virtualSpring":
+				self.pBalls      = np.zeros((self.nBalls,3), dtype="float32")
+				self.vBalls      = np.zeros((self.nBalls,3), dtype="float32")
+
+			distance=np.zeros((self.nBalls*self.nBalls))
+			distance[0]=1 
+			while (sum(distance)>0):	# repeat until no balls overlap
+				distance=np.zeros((self.nBalls*self.nBalls))
+				self.pBalls=np.zeros((self.nBalls,3), dtype="float32")# m
+				self.pBalls[:,0] = np.random.uniform(self.wall[0][0],self.wall[0][1], (self.nBalls)).astype(np.float32) #initialize balls to be between walls
+				self.pBalls[:,1] = np.random.uniform(self.wall[1][0],self.wall[1][1], (self.nBalls)).astype(np.float32)
+				if self.dimType=="3D":
+					self.pBalls[:,2] = np.random.uniform(self.wall[2][0],self.wall[2][1], (self.nBalls)).astype(np.float32)
+				else:
+					self.pBalls[:,2] = np.zeros((self.nBalls), dtype="float32")
+				for i in range(0,self.nBalls-1):
+					for j in range(i+1,self.nBalls):
+						if np.sqrt(sum(np.square(self.pBalls[i,:] -self.pBalls[j,:]))) < self.rBalls*2: #check euclidean distance
+							distance[i]=1
+		#if self.moveType=="virtualSpring":
+			self.targets=np.random.permutation(self.nBalls) #create randon permutation of balls
+			self.targets=self.targets[0:self.nTargets] #define targets
+			self.pBallStart=self.pBalls[self.targets,:] #randomise and find targets
+			self.currentTarget=0 #start response from first balls
+			self.ballColor=np.ones((self.nBalls,3), 'f') #everything grey
+			self.ballColor[self.targets,:]=numpy.matlib.repmat([1,0,0],self.nTargets,1) #num targets cannot be less than num of balls
+			self.resBallColor=np.ones((self.nBalls,3), 'f') #initiale response balls color
+
+
+
+
+
+
+
 		# set uniform variables and set up VBO's for the attribute values
 		# reference triangles, do not move in model coordinates
 		# position of the center
@@ -386,10 +446,19 @@ class Field(QGLWidget):
 		self.program = shader.initializeShaders(shader.vs, shader.fs)
 		# constant uniforms
 		glUniform1f(glGetUniformLocation(self.program, "rBalls"), self.rBalls)
+		if self.dimType=="3D":
+			glUniform1f(glGetUniformLocation(self.program, "diffuse"), 1.0)
+			glUniform1f(glGetUniformLocation(self.program, "ambient"), 0.3)
+		else:
+			glUniform1f(glGetUniformLocation(self.program, "diffuse"), 0.0)
+			glUniform1f(glGetUniformLocation(self.program, "ambient"), 0.6)
+
+
 		# dynamic uniforms
 		self.MVPLocation = glGetUniformLocation(self.program, "MVP")
 		self.nFrameLocation = glGetUniformLocation(self.program, "nFrame")
 		self.fadeFactorLocation = glGetUniformLocation(self.program, "fadeFactor")
+
 		self.colorLocation = glGetUniformLocation(self.program, "color")
 		self.offsetLocation = glGetUniformLocation(self.program, "offset")
 		# attributes
@@ -433,14 +502,15 @@ class Field(QGLWidget):
 				
 		elif self.moveType=="virtualSpring":
 
-			L= 0#dampening/ inertia
-			K= 0.05#spring constant
-			Sig=0.03
+			sigV=0.005
+			sigX=0.3 #this needs to be redined to update
+			L= 0.9#dampening/ inertia
+			K=((L+1)*sigV**2)/(2*sigX**2)
+			sig=0.5*np.sqrt(sigV**2*(4*sigX**2-4*L**2*sigX**2-sigV**2+L**2*sigV**2)/sigX**2)
 			t = time.time()
 			#dt = t - self.tOld
-			dt=0.1
+			dt=1
 			self.tOld = t
-			dt = min(0.100, dt) # rather violate physics than make a huge timestep, needed after pause
 			if self.motionTrigger==0: #don't move balls
 				self.pBalls = self.pBalls
 
@@ -448,11 +518,15 @@ class Field(QGLWidget):
 			elif self.motionTrigger==1: #move balls
 				print("[{:.6f},{:s}],".format(time.time()-self.startime, ",".join(map(str,self.pBalls.ravel().tolist()))),file=self.savefile)
 				# ball displacement (semi implicit Euler)
-				self.vBalls = L*self.vBalls + K*(0-self.pBalls)*dt + np.sqrt(dt)*np.random.normal(0,Sig,(self.nBalls,3)).astype(np.float32)
-				self.pBalls = self.pBalls + self.vBalls
+				if self.dimType =="3D":
+					self.vBalls = L*self.vBalls + K*(0-self.pBalls)*dt + np.sqrt(dt)*np.random.normal(0,sig,(self.nBalls,3)).astype(np.float32)
+					self.pBalls = self.pBalls + self.vBalls
+				else:
+					self.vBalls = L*self.vBalls + K*(0-self.pBalls)*dt + np.sqrt(dt)*np.random.normal(0,sig,(self.nBalls,3)).astype(np.float32)
+					self.vBalls[:,2]=np.zeros((self.nBalls)) # z axis always zero 
+					self.pBalls = self.pBalls + self.vBalls
 
-
-	nFramePerSecond = 0 # number of frame in this Gregorian second
+	nFramePerSecond = 0 # number of frame in this Gregorian 
 	nFrame = 0 # total number of frames
 	nSeconds = int(time.time())
 	def paintGL(self):
@@ -509,6 +583,7 @@ class Field(QGLWidget):
 				
 			# calculate MVP (VP really)
 			z = self.pViewer[2]
+			
 			MVP = transforms.arjan(self.dScreen[0], self.dScreen[1], 
 				z-self.zNear, z-self.zFocal, z-self.zFar,
 				self.pViewer[0]+xEye, self.pViewer[1])
